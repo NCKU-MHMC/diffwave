@@ -15,6 +15,8 @@ import warnings
 from collections import defaultdict
 from contextlib import contextmanager
 
+from .func_util import exists
+
 DEBUG = 10
 INFO = 20
 WARN = 30
@@ -158,33 +160,20 @@ class TensorBoardOutputFormat(KVWriter):
         self.step = 1
         prefix = "events"
         path = osp.join(osp.abspath(dir), prefix)
-        import tensorflow as tf
-        from tensorflow.python import pywrap_tensorflow
-        from tensorflow.core.util import event_pb2
-        from tensorflow.python.util import compat
-
-        self.tf = tf
-        self.event_pb2 = event_pb2
-        self.pywrap_tensorflow = pywrap_tensorflow
-        self.writer = pywrap_tensorflow.EventsWriter(compat.as_bytes(path))
+        from torch.utils.tensorboard.writer import SummaryWriter
+        self.writer = SummaryWriter(path, flush_secs=1) # _pywrap_events_writer.EventsWriter(compat.as_str(path))
 
     def writekvs(self, kvs):
-        def summary_val(k, v):
-            kwargs = {"tag": k, "simple_value": float(v)}
-            return self.tf.Summary.Value(**kwargs)
+        assert exists(self.writer)
 
-        summary = self.tf.Summary(value=[summary_val(k, v) for k, v in kvs.items()])
-        event = self.event_pb2.Event(wall_time=time.time(), summary=summary)
-        event.step = (
-            self.step
-        )  # is there any reason why you'd want to specify the step?
-        self.writer.WriteEvent(event)
-        self.writer.Flush()
+        for k, v in kvs.items():
+            self.writer.add_scalar(k, v, self.step)
+
         self.step += 1
 
     def close(self):
         if self.writer:
-            self.writer.Close()
+            self.writer.close()
             self.writer = None
 
 
@@ -330,9 +319,9 @@ def get_current():
 
 
 class Logger(object):
-    DEFAULT = None  # A logger with no output files. (See right below class definition)
+    DEFAULT: "Logger"  # A logger with no output files. (See right below class definition)
     # So that you can still log to the terminal without setting up any output files
-    CURRENT = None  # Current logger being used by the free functions above
+    CURRENT: "Logger"  # Current logger being used by the free functions above
 
     def __init__(self, dir, output_formats, comm=None):
         self.name2val = defaultdict(float)  # values this iteration

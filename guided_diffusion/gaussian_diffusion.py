@@ -10,11 +10,18 @@ import math
 
 import numpy as np
 import torch as th
+from torch.nn import functional as F
 
 from .nn import mean_flat
 from .losses import normal_kl, discretized_gaussian_log_likelihood
 from guided_diffusion import logger
+from .func_util import unwrap
 
+from typing import Optional, Any
+
+def sisdr(tgt, est):
+    alpha = (tgt * est).sum() / (tgt * tgt).sum()
+    return 10 * th.log10((alpha*tgt).square().sum()/(alpha*tgt-est).square().sum())
 
 def get_named_beta_schedule(schedule_name, num_diffusion_timesteps):
     """
@@ -124,12 +131,14 @@ class GaussianDiffusion:
         model_var_type,
         loss_type,
         rescale_timesteps=False,
-        input_pertub=0.0
+        input_pertub=0.0,
+        input_sigma_t=False,
     ):
         self.model_mean_type = model_mean_type
         self.model_var_type = model_var_type
         self.loss_type = loss_type
         self.rescale_timesteps = rescale_timesteps
+        self.input_sigma_t = input_sigma_t
 
         # Use float64 for accuracy.
         betas = np.array(betas, dtype=np.float64)
@@ -261,7 +270,12 @@ class GaussianDiffusion:
 
         B, C = x.shape[:2]
         assert t.shape == (B,)
-        model_output = model(x, self._scale_timesteps(t), **model_kwargs)
+        if self.input_sigma_t:
+            model_output = model(
+                x, _extract_into_tensor(self.betas, t, t.shape), **model_kwargs
+            )
+        else:
+            model_output = model(x, self._scale_timesteps(t), **model_kwargs)
 
         if self.model_var_type in [ModelVarType.LEARNED, ModelVarType.LEARNED_RANGE]:
             assert model_output.shape == (B, C * 2, *x.shape[2:])
@@ -486,7 +500,7 @@ class GaussianDiffusion:
             progress=progress,
         ):
             final = sample
-        return final["sample"]
+        return unwrap(final)["sample"]
 
     def p_sample_loop_progressive(
         self,
@@ -658,7 +672,7 @@ class GaussianDiffusion:
             eta=eta,
         ):
             final = sample
-        return final["sample"]
+        return unwrap(final)["sample"]
 
     def ddim_sample_loop_progressive(
         self,
@@ -732,13 +746,15 @@ class GaussianDiffusion:
         kl = normal_kl(
             true_mean, true_log_variance_clipped, out["mean"], out["log_variance"]
         )
-        kl = mean_flat(kl) / np.log(2.0)
+        # kl = mean_flat(kl) / np.log(2.0)
+        kl = kl / np.log(2.0)
 
         decoder_nll = -discretized_gaussian_log_likelihood(
             x_start, means=out["mean"], log_scales=0.5 * out["log_variance"]
         )
         assert decoder_nll.shape == x_start.shape
-        decoder_nll = mean_flat(decoder_nll) / np.log(2.0)
+        # decoder_nll = mean_flat(decoder_nll) / np.log(2.0)
+        decoder_nll = decoder_nll / np.log(2.0)
 
         # At the first timestep return the decoder NLL,
         # otherwise return KL(q(x_{t-1}|x_t,x_0) || p(x_{t-1}|x_t))
@@ -763,7 +779,9 @@ class GaussianDiffusion:
         if noise is None:
             noise = th.randn_like(x_start)
         new_noise = noise + self.input_pertub * th.randn_like(noise)
+        # new_noise = noise
         x_t = self.q_sample(x_start, t, noise=new_noise)
+        _x_t = self.q_sample(x_start, t, noise=noise)
 
         terms = {}
 
@@ -779,7 +797,13 @@ class GaussianDiffusion:
             if self.loss_type == LossType.RESCALED_KL:
                 terms["loss"] *= self.num_timesteps
         elif self.loss_type == LossType.MSE or self.loss_type == LossType.RESCALED_MSE:
-            model_output = model(x_t, self._scale_timesteps(t), **model_kwargs)
+            if self.input_sigma_t:
+                model_output = model(
+                    x_t, _extract_into_tensor(self.betas, t, t.shape), **model_kwargs
+                )
+            else:
+                model_output = model(x_t, self._scale_timesteps(t), **model_kwargs)
+            # model_output = model(x_t, self._scale_timesteps(t), **model_kwargs)
 
             if self.model_var_type in [
                 ModelVarType.LEARNED,
@@ -811,15 +835,29 @@ class GaussianDiffusion:
                 ModelMeanType.EPSILON: noise,
             }[self.model_mean_type]
             assert model_output.shape == target.shape == x_start.shape
-            terms["mse"] = mean_flat((target - model_output) ** 2)
+            terms["mse"] = mean_flat((target - model_output).square() *
+                                     (~model_kwargs["mask_batch"]).float())
+            pred_xstart = {ModelMeanType.PREVIOUS_X: self._predict_xstart_from_xprev(_x_t, t, model_output),
+                           ModelMeanType.START_X: model_output,
+                           ModelMeanType.EPSILON: self._predict_xstart_from_eps(_x_t, t, model_output)}[self.model_mean_type]
+            # terms["sisdr"] = th.vmap(sisdr)(x_start * (1-model_kwargs["mask_batch"]), pred_xstart * (1-model_kwargs["mask_batch"]))
+
+            # terms["mse"] = mean_flat(F.smooth_l1_loss(model_output, target, reduction="none") * (1-model_kwargs["mask_batch"]))
             if "vb" in terms:
-                terms["loss"] = terms["mse"] + terms["vb"]
+                terms["vb"] = mean_flat(terms["vb"] * (~model_kwargs["mask_batch"]).float())
+                terms["loss"] = terms["mse"] + terms["vb"] # + (terms["sisdr"].detach() - terms["sisdr"]) * 0.001
             else:
-                terms["loss"] = terms["mse"]
+                terms["loss"] = terms["mse"] # + (terms["sisdr"].detach() - terms["sisdr"]) * 0.001
         else:
             raise NotImplementedError(self.loss_type)
 
-        return terms
+        pred_xstart = self._predict_xstart_from_eps(x_t, t, model_output)
+        pred_xstart = pred_xstart * (~model_kwargs["mask_batch"]).float()
+        pred_xstart = pred_xstart - pred_xstart.min(dim=-1, keepdim=True)[0]
+        pred_xstart = pred_xstart / pred_xstart.max(dim=-1, keepdim=True)[0]
+        pred_xstart = pred_xstart * 2 - 1
+
+        return terms, {"pred_xstart": pred_xstart}
 
     def _prior_bpd(self, x_start):
         """

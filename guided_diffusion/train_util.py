@@ -4,6 +4,7 @@ import os
 
 import blobfile as bf
 import torch as th
+from torch import nn
 import torch.distributed as dist
 from torch.nn.parallel.distributed import DistributedDataParallel as DDP
 from torch.optim import AdamW
@@ -12,6 +13,7 @@ from . import dist_util, logger
 from .fp16_util import MixedPrecisionTrainer
 from .nn import update_ema
 from .resample import LossAwareSampler, UniformSampler
+from .gaussian_diffusion import GaussianDiffusion
 
 # For ImageNet experiments, this was a good default value.
 # We found that the lg_loss_scale quickly climbed to
@@ -23,8 +25,8 @@ class TrainLoop:
     def __init__(
         self,
         *,
-        model,
-        diffusion,
+        model: nn.Module,
+        diffusion: GaussianDiffusion,
         data,
         batch_size,
         microbatch,
@@ -38,6 +40,7 @@ class TrainLoop:
         schedule_sampler=None,
         weight_decay=0.0,
         lr_anneal_steps=0,
+        sampling_rate=16_000,
     ):
         self.model = model
         self.diffusion = diffusion
@@ -58,6 +61,7 @@ class TrainLoop:
         self.schedule_sampler = schedule_sampler or UniformSampler(diffusion)
         self.weight_decay = weight_decay
         self.lr_anneal_steps = lr_anneal_steps
+        self.sampling_rate = sampling_rate
 
         self.step = 0
         self.resume_step = 0
@@ -96,7 +100,7 @@ class TrainLoop:
                 output_device=dist_util.dev(),
                 broadcast_buffers=False,
                 bucket_cap_mb=128,
-                find_unused_parameters=False,
+                find_unused_parameters=True,
             )
         else:
             if dist.get_world_size() > 1:
@@ -155,12 +159,22 @@ class TrainLoop:
             not self.lr_anneal_steps
             or self.step + self.resume_step < self.lr_anneal_steps
         ):
-            batch, cond = next(self.data)
-            self.run_step(batch, cond)
+            (batch, mask_batch), (ref, mask_ref) = next(self.data)
+            self.run_step(batch, {"mask_batch": mask_batch, "ref": ref, "mask_ref": mask_ref})
             if self.step % self.log_interval == 0:
                 logger.dumpkvs()
             if self.step % self.save_interval == 0:
                 self.save()
+
+                for f in logger.get_current().output_formats:
+                    if isinstance(f, logger.TensorBoardOutputFormat):
+                        assert f.writer is not None
+                        samples = self.diffusion.p_sample_loop(self.ddp_model, (16, 64000),
+                                                     clip_denoised=False, device=dist_util.dev())
+                        samples = samples/samples.abs().max(-1, keepdim=True)[0]
+                        for i, w in enumerate(samples):
+                            f.writer.add_audio(f"samples/{i}", w, f.step, self.sampling_rate)
+
                 # Run for a finite amount of time in integration tests.
                 if os.environ.get("DIFFUSION_TRAINING_TEST", "") and self.step > 0:
                     return
@@ -197,11 +211,18 @@ class TrainLoop:
             )
 
             if last_batch or not self.use_ddp:
-                losses = compute_losses()
+                losses, pred_x = compute_losses()
             else:
+                assert isinstance(self.ddp_model, DDP)
                 with self.ddp_model.no_sync():
-                    losses = compute_losses()
+                    losses, pred_x = compute_losses()
 
+            is_nan = th.isnan(losses["loss"]).logical_or(th.isinf(losses["loss"]))
+
+            weights = weights[~is_nan]
+            for k, v in losses.items():
+                losses[k] = v[~is_nan]
+            t = t[~is_nan]
             if isinstance(self.schedule_sampler, LossAwareSampler):
                 self.schedule_sampler.update_with_local_losses(
                     t, losses["loss"].detach()
