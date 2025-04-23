@@ -6,6 +6,9 @@ import numpy as np
 import torch as th
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.nn.attention import sdpa_kernel, SDPBackend
+
+from einops import rearrange
 
 from transformers.models.wav2vec2.modeling_wav2vec2 import Wav2Vec2Model
 
@@ -296,7 +299,7 @@ class AttentionBlock(nn.Module):
             # split heads before split qkv
             self.attention = QKVAttentionLegacy(self.num_heads)
 
-        self.proj_out = zero_module(conv_nd(1, channels, channels, 1))
+        self.proj_out = zero_module(conv_nd(1, channels*2, channels, 1))
 
     def forward(self, x):
         return checkpoint(self._forward, (x,), self.parameters(), True)
@@ -305,7 +308,11 @@ class AttentionBlock(nn.Module):
         b, c, *spatial = x.shape
         x = x.reshape(b, c, -1)
         qkv = self.qkv(self.norm(x))
-        h = self.attention(qkv)
+        # qkv = th.chunk(qkv, 2, 1)
+        h = th.cat([self.attention(qkv, True),
+                    th.flip(self.attention(th.flip(qkv, (2,)), True), (2,))],
+                    #self.attention(qkv)],
+                    1)
         h = self.proj_out(h)
         return (x + h).reshape(b, c, *spatial)
 
@@ -339,7 +346,7 @@ class QKVAttentionLegacy(nn.Module):
         super().__init__()
         self.n_heads = n_heads
 
-    def forward(self, qkv):
+    def forward(self, qkv, is_causal=False):
         """
         Apply QKV attention.
 
@@ -349,14 +356,16 @@ class QKVAttentionLegacy(nn.Module):
         bs, width, length = qkv.shape
         assert width % (3 * self.n_heads) == 0
         ch = width // (3 * self.n_heads)
-        q, k, v = qkv.reshape(bs * self.n_heads, ch * 3, length).split(ch, dim=1)
-        scale = 1 / math.sqrt(math.sqrt(ch))
-        weight = th.einsum(
-            "bct,bcs->bts", q * scale, k * scale
-        )  # More stable with f16 than dividing afterwards
-        weight = th.softmax(weight.float(), dim=-1).type(weight.dtype)
-        a = th.einsum("bts,bcs->bct", weight, v)
-        return a.reshape(bs, -1, length)
+        q, k, v = rearrange(qkv, 'b (h c) t -> b h t c', h=self.n_heads).split(ch, dim=-1)
+        if is_causal:
+            len_scale = th.log(th.arange(length, device=qkv.device, dtype=q.dtype) + 1.).reshape(1, 1, -1, 1) / math.log(128)
+        else:
+            len_scale = math.log(length) / math.log(128)
+        # with sdpa_kernel(SDPBackend.EFFICIENT_ATTENTION):
+        with sdpa_kernel(SDPBackend.FLASH_ATTENTION):
+            a = F.scaled_dot_product_attention((q*len_scale).contiguous(), k.contiguous(), v.contiguous(), is_causal=is_causal)
+
+        return rearrange(a, "b h t c -> b (h c) t")#.type(qkv.dtype)
 
     @staticmethod
     def count_flops(model, _x, y):
@@ -389,9 +398,17 @@ class QKVAttention(nn.Module):
             (q * scale).view(bs * self.n_heads, ch, length),
             (k * scale).view(bs * self.n_heads, ch, length),
         )  # More stable with f16 than dividing afterwards
-        weight = th.softmax(weight.float(), dim=-1).type(weight.dtype)
-        a = th.einsum("bts,bcs->bct", weight, v.reshape(bs * self.n_heads, ch, length))
-        return a.reshape(bs, -1, length)
+        mask = th.full((length, length), -np.inf, device=weight.device)
+        mask_u = th.triu(mask, diagonal=1)[None, ...]
+        mask_l = th.tril(mask, diagonal=-1)[None, ...]
+        len_scale_u = (~mask_u.isinf()).float().sum(-1, keepdim=True).log() / math.log(128)
+        len_scale_l = (~mask_l.isinf()).float().sum(-1, keepdim=True).log() / math.log(128)
+        weight_u = th.softmax(weight.float() * len_scale_u + mask_u, dim=-1).type(weight.dtype)
+        weight_l = th.softmax(weight.float() * len_scale_l + mask_l, dim=-1).type(weight.dtype)
+        v_u, v_l = th.chunk(v, 2, dim=1)
+        a_u = th.einsum("bts,bcs->bct", weight_u, v_u)
+        a_l = th.einsum("bts,bcs->bct", weight_l, v_l)
+        return th.cat([a_u, a_l], dim=1).reshape(bs, -1, length)
 
     @staticmethod
     def count_flops(model, _x, y):

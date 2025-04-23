@@ -21,17 +21,60 @@ from dataclasses import dataclass
 import hydra
 from hydra.core.config_store import ConfigStore
 
+from typing import Union, Literal, Optional
+
 @dataclass
-class MySQLConfig:
-    host: str = "localhost"
-    port: int = 3306
+class ModelConfig:
+    _target_: str = "guided_diffusion.unet.UNetModel"
+
+@dataclass
+class DiffusionConfig:
+    _target_: str = "guided_diffusion.gaussian_diffusion.GaussianDiffusion"
+
+@dataclass
+class DatasetConfig:
+    _target_: str = "guided_diffusion.audio_datasets.LibriTTSDataset"
+    root: str = ""
+
+@dataclass
+class TrainerConfig:
+    model: ModelConfig
+    diffusion: DiffusionConfig
+    dataset: DatasetConfig
+
+    schedule_sampler: str = "loss-second-moment" # Union[Literal["loss-second-moment"], Literal["uniform"]]
+    # schedule_sampler: "uniform"
+    output_dir: str = "results"
+    use_ema: bool = False
+    segment_size: Optional[int] = None
+    sampling_rate: int = 16000
+    device: str = "cuda"
+
+    batch_size: int = 32
+    # max_len: 80000
+    max_len: int = 80000
+    deterministic: bool = False
+    num_workers: int = 8
+    microbatch: int = -1 # -1 disables microbatches
+
+    lr: float =  0.0001
+    ema_rate: str = "0.9999"  # comma-separated list of EMA values
+    weight_decay: float = 0.
+    lr_anneal_steps: int = 0
+    log_interval: int = 100
+    save_interval: int = 10000
+    resume_checkpoint: str = ".experiments/libritts/model050000.pt" # ".experiments/v24/model100000.pt"
+    use_fp16: bool = True
+    fp16_scale_growth: float = 0.001
+    input_pertub: float = 0. # 0.15
+    cond_drop_rate: float = 0.5
 
 cs = ConfigStore.instance()
 # Registering the Config class with the name 'config'.
-cs.store(name="config", node=MySQLConfig)
+cs.store(name="config", node=TrainerConfig)
 
 @hydra.main(config_path="../configs", config_name="v1", version_base=None)
-def main(cfg):
+def main(cfg: TrainerConfig):
     
     # args = create_argparser().parse_args()
 
@@ -43,7 +86,7 @@ def main(cfg):
     diffusion = hydra.utils.instantiate(cfg.diffusion)
 
     model.to(dist_util.dev())
-    logger.log(summary(model, input_size=[(1, cfg.max_len), (1,)]))
+    # logger.log(summary(model, input_size=[(1, cfg.max_len), (1,)]))
     schedule_sampler = create_named_schedule_sampler(cfg.schedule_sampler, diffusion)
     logger.log(f"creating data loader from {cfg.dataset.root}...")
 
@@ -71,30 +114,6 @@ def main(cfg):
         lr_anneal_steps=cfg.lr_anneal_steps,
         sampling_rate=cfg.sampling_rate,
     ).run_loop()
-
-
-def create_argparser():
-    defaults = dict(
-        data_dir="",
-        schedule_sampler="uniform",
-        lr=1e-4,
-        weight_decay=0.0,
-        lr_anneal_steps=0,
-        batch_size=1,
-        microbatch=-1,  # -1 disables microbatches
-        ema_rate="0.9999",  # comma-separated list of EMA values
-        log_interval=100,
-        save_interval=50000,
-        resume_checkpoint="",
-        use_fp16=False,
-        fp16_scale_growth=1e-3,
-        input_pertub = 0.0,
-    )
-    defaults.update(model_and_diffusion_defaults())
-    parser = argparse.ArgumentParser()
-    add_dict_to_argparser(parser, defaults)
-    return parser
-
 
 if __name__ == "__main__":
     main()

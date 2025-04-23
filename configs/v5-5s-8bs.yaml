@@ -13,7 +13,7 @@ segment_size: null
 sampling_rate: 16000
 device: cuda
 
-batch_size: 32
+batch_size: 8
 # max_len: 80000
 max_len: 80_000 # 80000
 deterministic: False
@@ -26,8 +26,8 @@ weight_decay: 0.
 lr_anneal_steps: 0
 log_interval: 100
 save_interval: 10000
-resume_checkpoint: ".experiments/libritts-130k/model160000.pt" # ".experiments/v24/model100000.pt"
+resume_checkpoint: ".experiments/libritts-v5-5s-8bs/model380000.pt"
 use_fp16: True
 fp16_scale_growth: 0.001
-input_pertub: 0. # 0.15
+input_pertub: 0.1
 cond_drop_rate: 0.5

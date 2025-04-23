@@ -161,11 +161,11 @@ class MixedPrecisionTrainer:
         self.param_groups_and_shapes = None
         self.lg_loss_scale = initial_lg_loss_scale
 
+        self.param_groups_and_shapes = get_param_groups_and_shapes(
+            self.model.named_parameters()
+        )
+        self.master_params = make_master_params(self.param_groups_and_shapes)
         if self.use_fp16:
-            self.param_groups_and_shapes = get_param_groups_and_shapes(
-                self.model.named_parameters()
-            )
-            self.master_params = make_master_params(self.param_groups_and_shapes)
             self.model.convert_to_fp16()
 
     def zero_grad(self):
@@ -208,10 +208,13 @@ class MixedPrecisionTrainer:
         return True
 
     def _optimize_normal(self, opt: th.optim.Optimizer):
+        model_grads_to_master_grads(self.param_groups_and_shapes, self.master_params)
         grad_norm, param_norm = self._compute_norms()
         logger.logkv_mean("grad_norm", grad_norm)
         logger.logkv_mean("param_norm", param_norm)
         opt.step()
+        zero_master_grads(self.master_params)
+        master_params_to_model_params(self.param_groups_and_shapes, self.master_params)
         return True
 
     def _compute_norms(self, grad_scale=1.0):
@@ -226,11 +229,11 @@ class MixedPrecisionTrainer:
 
     def master_params_to_state_dict(self, master_params):
         return master_params_to_state_dict(
-            self.model, self.param_groups_and_shapes, master_params, self.use_fp16
+            self.model, self.param_groups_and_shapes, master_params, True
         )
 
     def state_dict_to_master_params(self, state_dict):
-        return state_dict_to_master_params(self.model, state_dict, self.use_fp16)
+        return state_dict_to_master_params(self.model, state_dict, True)
 
 
 def check_overflow(value):

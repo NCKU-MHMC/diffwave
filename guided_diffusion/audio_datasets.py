@@ -35,19 +35,26 @@ def load_data(*, dataset, batch_size, max_len, deterministic=False, num_workers=
     """
 
     def _collate(data: tuple[torch.Tensor, ...], is_cond=False):
-        crop_len = min(max(w.shape[0] for w in data), max_len)
+        crop_len = min(max(w.shape[0] for w in data), max_len if not is_cond else 80000)
         cropped_data = torch.zeros((len(data), crop_len))
         mask = torch.ones_like(cropped_data, dtype=torch.bool)
         for i, w in enumerate(data):
             # w = normalize_waveform(w, dataset.sampling_rate)
             if crop_len <= w.shape[0]:
                 s = random.randint(0, w.shape[0] - crop_len)
-                cropped_data[i] = w[s:s+crop_len]
+                cropped_data[i] = w[s:s+crop_len] - w[s:s+crop_len].mean() * random.uniform(0, 2)
                 mask[i, :] = False
             else:
-                s = random.randint(0,  crop_len - w.shape[0])
-                cropped_data[i, s:s+w.shape[0]] = w
-                mask[i, s:s+w.shape[0]] = False
+                if is_cond:
+                    s = random.randint(0, crop_len - w.shape[0])
+                    cropped_data[i, :w.shape[0]] = w - w.mean() * random.uniform(0, 2)
+                    mask[i, :w.shape[0]] = False
+                else:
+                    s = random.randint(0,  crop_len - w.shape[0])
+                    cropped_data[i, s:s+w.shape[0]] = w - w.mean() * random.uniform(0, 2)
+                    mask[i, s:s+w.shape[0]] = False
+            cropped_data[i] = cropped_data[i] / torch.max(torch.abs(cropped_data[i])).clamp_min(1)
+
         if is_cond:
             cond = torch.rand(mask.shape[0], 1) <= cond_drop_rate
             mask = torch.logical_or(cond, mask)

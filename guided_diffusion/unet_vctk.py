@@ -479,10 +479,6 @@ class UNetModel(nn.Module):
             linear(time_embed_dim, time_embed_dim),
         )
 
-        self.non_spk_emb = nn.Parameter(th.randn(512))
-        self.spk_encoder = Speech2Vector(2, 512)
-        time_embed_dim = time_embed_dim + 512
-
         if self.num_classes is not None:
             self.label_emb = nn.Embedding(self.num_classes, time_embed_dim)
 
@@ -666,13 +662,6 @@ class UNetModel(nn.Module):
 
         hs = []
         emb = self.time_embed(timestep_embedding(timesteps, self.model_channels))
-        spk_emb = self.non_spk_emb.repeat(N, 1)
-        if exists(ref) and exists(mask_ref):
-            # spk_emb = self.spk_encoder(ref, mask_ref.bool())
-            spk_emb = th.vmap(th.where)(mask_ref.all(-1),
-                                        spk_emb,
-                                        self.spk_encoder(ref, mask_ref.bool()),)
-        emb = th.cat([emb, spk_emb], dim=-1)
 
         if self.num_classes is not None:
             assert unwrap(y).shape == (x.shape[0],)
@@ -689,73 +678,3 @@ class UNetModel(nn.Module):
         h = h.type(x.dtype)
         return self.out(h)[:,0,:l]
 
-class w2v2(nn.Module): #Small Wrapper
-    def __init__(self, m):
-        super().__init__()
-        self.feature_extractor = m.feature_extractor
-        self.feature_projection = m.feature_projection
-        self.encoder = m.encoder
-        self._get_feature_vector_attention_mask = m._get_feature_vector_attention_mask
-
-class Speech2Vector(nn.Module):
-    def __init__(self, enc_layers: int, out_features):
-        super().__init__()
-        model = self.get_model()
-        model.encoder.layers = model.encoder.layers[:enc_layers]
-        self.feature_extractor = model.feature_extractor
-        self.feature_projection = model.feature_projection
-        self.encoder = model.encoder
-        self._get_feature_vector_attention_mask = model._get_feature_vector_attention_mask
-        self.linear = nn.Linear(model.config.hidden_size, out_features)
-
-    def get_model(self):
-        model = Wav2Vec2Model.from_pretrained("facebook/wav2vec2-base")
-        #Simple trick to crop the layers for fine-tuning
-        model.feature_extractor.gradient_checkpointing = False
-        model.encoder.gradient_checkpointing = False
-        model.feature_extractor._freeze_parameters()
-        model.config.layerdrop = 0
-        return model
-
-    def process(self, x, mask, encoder, linear):
-        reps = encoder(x, attention_mask=mask)[0] #N, T, C
-        if mask is None:
-            rep = reps.mean(1)
-        else:
-            length = th.sum(mask.float(), 1, keepdim=True)
-            rep = th.sum(reps, 1) / length
-        rep = linear(rep)
-        return rep
-
-    def step(self, x, mask=None):
-        with th.no_grad():
-            x = self.feature_extractor(x)
-            x = x.transpose(1, 2)
-            if mask is not None:
-                mask = (~mask).long()
-                mask = self._get_feature_vector_attention_mask(
-                    x.shape[1], mask, add_adapter=False
-                )
-            x, _ = self.feature_projection(x)
-            x = x.detach()
-        return x, mask
-
-    def forward(self, x, mask=None):
-        """
-        Args
-        ---
-        x (tensor): audio waveform (batch, len)
-        mask (tensor): audio mask, 1 if padding, 0 otherwise (batch, len)
-
-        Returns
-        ---
-        rep (tensor): pitch embedding (batch, hp.feature_size)
-        spk (tensor): speaker embedding (batch, hp.feature_size)
-        dur (tensor): duration embedding (batch, hp.feature_size)
-        vp (tensor): voiced embedding (batch, hp.feature_size)
-        """
-
-        x, mask = self.step(x, mask)    # feature extraction via w2v2's CNN model
-        # pass through attribute encoders
-        spk = self.process(x, mask, self.encoder, self.linear) # a_s
-        return spk

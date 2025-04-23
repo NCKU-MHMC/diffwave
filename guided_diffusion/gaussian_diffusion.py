@@ -15,13 +15,13 @@ from torch.nn import functional as F
 from .nn import mean_flat
 from .losses import normal_kl, discretized_gaussian_log_likelihood
 from guided_diffusion import logger
-from .func_util import unwrap
+from .func_util import unwrap, exists
 
 from typing import Optional, Any
 
 def sisdr(tgt, est):
-    alpha = (tgt * est).sum() / (tgt * tgt).sum()
-    return 10 * th.log10((alpha*tgt).square().sum()/(alpha*tgt-est).square().sum())
+    alpha = ((tgt * est).sum() / (tgt * tgt).sum()).detach()
+    return 10 * (th.log10((alpha*tgt).square().sum()) - th.log10((alpha*tgt-est).square().sum()))
 
 def get_named_beta_schedule(schedule_name, num_diffusion_timesteps):
     """
@@ -777,11 +777,13 @@ class GaussianDiffusion:
         if model_kwargs is None:
             model_kwargs = {}
         if noise is None:
-            noise = th.randn_like(x_start)
-        new_noise = noise + self.input_pertub * th.randn_like(noise)
-        # new_noise = noise
-        x_t = self.q_sample(x_start, t, noise=new_noise)
-        _x_t = self.q_sample(x_start, t, noise=noise)
+            noise = th.randn_like(x_start) * (~model_kwargs["mask_batch"]).float()
+        new_noise = noise + self.input_pertub * th.randn_like(noise) * (~model_kwargs["mask_batch"]).float()
+        # input_pertub = th.from_numpy(np.minimum(self.sqrt_alphas_cumprod,
+        #                                         self.sqrt_one_minus_alphas_cumprod * self.input_pertub)).to(t.device)[t]
+        # # input_pertub = input_pertub * th.rand_like(t.float())
+        x_t = self.q_sample(x_start, t, noise=new_noise) # + th.vmap(lambda a, b: a*b)(input_pertub, th.randn_like(noise))
+        # _x_t = self.q_sample(x_start, t, noise=noise)
 
         terms = {}
 
@@ -835,19 +837,19 @@ class GaussianDiffusion:
                 ModelMeanType.EPSILON: noise,
             }[self.model_mean_type]
             assert model_output.shape == target.shape == x_start.shape
+            # terms["mse"] = mean_flat((target - model_output).square())
             terms["mse"] = mean_flat((target - model_output).square() *
                                      (~model_kwargs["mask_batch"]).float())
-            pred_xstart = {ModelMeanType.PREVIOUS_X: self._predict_xstart_from_xprev(_x_t, t, model_output),
-                           ModelMeanType.START_X: model_output,
-                           ModelMeanType.EPSILON: self._predict_xstart_from_eps(_x_t, t, model_output)}[self.model_mean_type]
-            # terms["sisdr"] = th.vmap(sisdr)(x_start * (1-model_kwargs["mask_batch"]), pred_xstart * (1-model_kwargs["mask_batch"]))
-
-            # terms["mse"] = mean_flat(F.smooth_l1_loss(model_output, target, reduction="none") * (1-model_kwargs["mask_batch"]))
+            # pred_xstart = {ModelMeanType.PREVIOUS_X: self._predict_xstart_from_xprev(_x_t, t, model_output),
+            #                ModelMeanType.START_X: model_output,
+            #                ModelMeanType.EPSILON: self._predict_xstart_from_eps(_x_t, t, model_output)}[self.model_mean_type]
+            # terms["sisdr"] = th.vmap(sisdr)(x_start * (~model_kwargs["mask_batch"]).float(),
+            #                                 pred_xstart * (~model_kwargs["mask_batch"]).float())
             if "vb" in terms:
                 terms["vb"] = mean_flat(terms["vb"] * (~model_kwargs["mask_batch"]).float())
-                terms["loss"] = terms["mse"] + terms["vb"] # + (terms["sisdr"].detach() - terms["sisdr"]) * 0.001
+                terms["loss"] = terms["mse"] + terms["vb"] # + (terms["sisdr"].detach() - terms["sisdr"]) * 0.0001
             else:
-                terms["loss"] = terms["mse"] # + (terms["sisdr"].detach() - terms["sisdr"]) * 0.001
+                terms["loss"] = terms["mse"] # + (terms["sisdr"].detach() - terms["sisdr"]) * 0.0001
         else:
             raise NotImplementedError(self.loss_type)
 
