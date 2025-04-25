@@ -42,18 +42,21 @@ def load_data(*, dataset, batch_size, max_len, deterministic=False, num_workers=
             # w = normalize_waveform(w, dataset.sampling_rate)
             if crop_len <= w.shape[0]:
                 s = random.randint(0, w.shape[0] - crop_len)
-                cropped_data[i] = w[s:s+crop_len] - w[s:s+crop_len].mean() * random.uniform(0, 2)
+                cropped_data[i] = w[s:s+crop_len] - w[s:s+crop_len].mean() # * random.uniform(0, 2)
                 mask[i, :] = False
             else:
-                if is_cond:
-                    s = random.randint(0, crop_len - w.shape[0])
-                    cropped_data[i, :w.shape[0]] = w - w.mean() * random.uniform(0, 2)
-                    mask[i, :w.shape[0]] = False
-                else:
-                    s = random.randint(0,  crop_len - w.shape[0])
-                    cropped_data[i, s:s+w.shape[0]] = w - w.mean() * random.uniform(0, 2)
-                    mask[i, s:s+w.shape[0]] = False
-            cropped_data[i] = cropped_data[i] / torch.max(torch.abs(cropped_data[i])).clamp_min(1)
+                s = random.randint(0, crop_len - w.shape[0])
+                cropped_data[i, :w.shape[0]] = w - w.mean() # * random.uniform(0, 2)
+                mask[i, :w.shape[0]] = False
+                # if is_cond:
+                #     s = random.randint(0, crop_len - w.shape[0])
+                #     cropped_data[i, :w.shape[0]] = w - w.mean() * random.uniform(0, 2)
+                #     mask[i, :w.shape[0]] = False
+                # else:
+                #     s = random.randint(0,  crop_len - w.shape[0])
+                #     cropped_data[i, s:s+w.shape[0]] = w - w.mean() * random.uniform(0, 2)
+                #     mask[i, s:s+w.shape[0]] = False
+            # cropped_data[i] = cropped_data[i] / torch.max(torch.abs(cropped_data[i])).clamp_min(1)
 
         if is_cond:
             cond = torch.rand(mask.shape[0], 1) <= cond_drop_rate
@@ -76,11 +79,13 @@ class VCTKDataset(Dataset):
                  root: str,
                  mic_id: str = "mic2",
                  sampling_rate: int=16_000,
-                 cache_dir: Optional[str] = None) -> None:
+                 cache_dir: Optional[str] = None,
+                 min_len: int = 0) -> None:
         super().__init__()
         self.root = root
         self.sampling_rate = sampling_rate
         self.cache_dir = cache_dir
+        self.min_len = min_len
 
         with open(f"{root}/speaker-info.txt", newline='') as csvfile:
             reader = csv.DictReader(csvfile, delimiter=' ', skipinitialspace=True)
@@ -112,9 +117,20 @@ class VCTKDataset(Dataset):
     def __getitem__(self, index):
         spk, i = self.mapping_table[index]
         w1 = self._get_data(spk, i)
-        j = random.randint(0, len(self.files[spk])-1)
-        while j == i:
-            j = random.randint(0, len(self.files[spk])-1)
+
+        candidates = [c for c in range(len(self.files[spk])) if i != c]
+        if len(candidates) == 0 :
+            candidates = [i]
+        random.shuffle(candidates)
+        c = 0
+        while w1.shape[0] < self.min_len:
+            k = candidates[c]
+            w1 = torch.cat((w1, self._get_data(spk, k)), dim=0)
+            c = (c + 1) % len(candidates)
+            if c == 0:
+                random.shuffle(candidates)
+
+        j = candidates[c]
         w2 = self._get_data(spk, j)
 
         return w1, w2
@@ -151,7 +167,8 @@ class LibriTTSDataset(Dataset):
                  root: str,
                  subsets: Union[list[str], str] = "train-clean-100",
                  sampling_rate: int=16_000,
-                 cache_dir: Optional[str] = None) -> None:
+                 cache_dir: Optional[str] = None,
+                 min_len: int=0) -> None:
         super().__init__()
         self.root = root
         self.sampling_rate = sampling_rate
@@ -160,6 +177,7 @@ class LibriTTSDataset(Dataset):
         self.files = {}
         self.cache_files = {}
         self.mapping_table = []
+        self.min_len = min_len
 
         for subset in self.subsets:
             for spk in os.listdir(f"{root}/{subset}/"):
@@ -187,9 +205,20 @@ class LibriTTSDataset(Dataset):
     def __getitem__(self, index):
         spk, i = self.mapping_table[index]
         w1 = self._get_data(spk, i)
-        j = random.randint(0, len(self.files[spk])-1)
-        while j == i and len(self.files[spk]) > 1:
-            j = random.randint(0, len(self.files[spk])-1)
+
+        candidates = [c for c in range(len(self.files[spk])) if i != c]
+        if len(candidates) == 0 :
+            candidates = [i]
+        random.shuffle(candidates)
+        c = 0
+        while w1.shape[0] < self.min_len:
+            k = candidates[c]
+            w1 = torch.cat((w1, self._get_data(spk, k)), dim=0)
+            c = (c + 1) % len(candidates)
+            if c == 0:
+                random.shuffle(candidates)
+
+        j = candidates[c]
         w2 = self._get_data(spk, j)
 
         return w1, w2

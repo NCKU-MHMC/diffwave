@@ -26,8 +26,8 @@ weight_decay: 0.
 lr_anneal_steps: 0
 log_interval: 100
 save_interval: 10000
-resume_checkpoint: ".experiments/libritts-v5-5s-8bs/model380000.pt"
+resume_checkpoint: ".experiments/libritts-v5-5s-8bs/model440000.pt"
 use_fp16: True
 fp16_scale_growth: 0.001
-input_pertub: 0.1
+input_pertub: 0. # 0.1
 cond_drop_rate: 0.5
