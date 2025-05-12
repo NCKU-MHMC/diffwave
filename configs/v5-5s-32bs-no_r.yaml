@@ -1,7 +1,7 @@
 defaults:
   - model: unet
   - diffusion: gaussian_diffusion
-  - dataset: libritts-r
+  - dataset: libritts
   - _self_
 
 schedule_sampler: "loss-second-moment"
@@ -26,7 +26,7 @@ weight_decay: 0.
 lr_anneal_steps: 0
 log_interval: 100
 save_interval: 10000
-resume_checkpoint: ".experiments/libritts-v5-5s-32bs/model620000.pt"
+resume_checkpoint: ".experiments/libritts-v5-5s-32bs/model650000.pt"
 use_fp16: True
 fp16_scale_growth: 0.001
 input_pertub: 0.

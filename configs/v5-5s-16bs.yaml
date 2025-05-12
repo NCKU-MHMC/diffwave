@@ -1,7 +1,7 @@
 defaults:
   - model: unet
   - diffusion: gaussian_diffusion
-  - dataset: libritts
+  - dataset: libritts-r
   - _self_
 
 schedule_sampler: "loss-second-moment"
