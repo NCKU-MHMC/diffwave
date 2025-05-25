@@ -34,7 +34,7 @@ class DiffusionConfig:
 @dataclass
 class DatasetConfig:
     _target_: str = "guided_diffusion.audio_datasets.LibriTTSDataset"
-    root: str = ""
+    # root: Optional[str] = ""
 
 @dataclass
 class TrainerConfig:
@@ -88,7 +88,7 @@ def main(cfg: TrainerConfig):
     model.to(dist_util.dev())
     # logger.log(summary(model, input_size=[(1, cfg.max_len), (1,)]))
     schedule_sampler = create_named_schedule_sampler(cfg.schedule_sampler, diffusion)
-    logger.log(f"creating data loader from {cfg.dataset.root}...")
+    # logger.log(f"creating data loader from {cfg.dataset.root}...")
 
     logger.log("creating data loader...")
     dataset = hydra.utils.instantiate(cfg.dataset)

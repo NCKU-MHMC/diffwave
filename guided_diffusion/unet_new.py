@@ -720,7 +720,13 @@ class Speech2Vector(nn.Module):
         dur (tensor): duration embedding (batch, hp.feature_size)
         vp (tensor): voiced embedding (batch, hp.feature_size)
         """
-
+        if mask is None:
+            x = th.vmap(lambda v: (v - v.mean())/v.std().clamp_min(1e-6))(x)  # normalize each sample
+        else:
+            n = (~mask).float().sum(1, keepdim=True).clamp_min(1e-6)
+            x_mu = (x * (~mask).float()).sum(1, keepdim=True)/n  # mean of non-masked values
+            x_std = ((x * (~mask).float()).pow(2).sum(1, keepdim=True)/n - x_mu.pow(2)).sqrt()
+            x = ((x - x_mu) / x_std.clamp_min(1e-6)) * (~mask).float()  
         x, mask = self.step(x, mask)    # feature extraction via w2v2's CNN model
         # pass through attribute encoders
         spk = self.process(x, mask, self.encoder, self.linear) # a_s
