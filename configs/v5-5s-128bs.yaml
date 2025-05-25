@@ -13,7 +13,7 @@ segment_size: null
 sampling_rate: 16000
 device: cuda
 
-batch_size: 32
+batch_size: 128
 # max_len: 80000
 max_len: 80_000 # 80000
 deterministic: False
