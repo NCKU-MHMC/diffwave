@@ -1,15 +1,19 @@
 _target_: guided_diffusion.audio_datasets.CompoundDataset
 subsets:
   - _target_: guided_diffusion.audio_datasets.LibriTTSDataset
-    root: "/media/8tsp/dataset/LibriTTS_R"
+    # root: "/media/8tsp/dataset/LibriTTS_R"
+    root: "/datasets/LibriTTS_R"
     subsets: ["train-clean-100", "train-clean-360", "train-other-500"]
     sampling_rate: 16000
-    cache_dir: "/media/8tsp/dataset/cache/LibriTTS_R/16k/"
+    # cache_dir: "/media/8tsp/dataset/cache/LibriTTS_R/16k/"
+    cache_dir: "/datasets/cache/LibriTTS_R/16k/"
     min_len: 80_000
 
   - _target_: guided_diffusion.audio_datasets.LibriTTSDataset
-    root: "/media/8tsp/dataset/LibriTTS"
+    # root: "/media/8tsp/dataset/LibriTTS"
+    root: "/datasets/LibriTTS"
     subsets: ["train-clean-100", "train-clean-360", "train-other-500"]
     sampling_rate: 16000
-    cache_dir: "/media/8tsp/dataset/cache/LibriTTS/16k/"
+    # cache_dir: "/media/8tsp/dataset/cache/LibriTTS/16k/"
+    cache_dir: "/datasets/cache/LibriTTS/16k/"
     min_len: 80_000

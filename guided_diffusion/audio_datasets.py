@@ -12,7 +12,8 @@ import numpy as np
 from numpy import ndarray
 import torch
 from torch.utils.data import DataLoader, Dataset
-from torchaudio import functional as af
+# from torchaudio import functional as af
+import librosa
 import soundfile as sf
 import pyloudnorm as pyln
 
@@ -128,7 +129,8 @@ class AudioDataset(Dataset):
                 w, r = sf.read(f)
                 w = torch.from_numpy(w)
             if r != self.sampling_rate:
-                w = af.resample(w, r, self.sampling_rate)
+                w = librosa.resample(w.numpy(), orig_sr=r, target_sr=self.sampling_rate)
+                w = torch.from_numpy(w)
 
             if self.cache_dir is not None:
                 name = os.path.basename(f)

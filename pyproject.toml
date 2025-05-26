@@ -21,6 +21,7 @@ torchinfo = "^1.8.0"
 pyloudnorm = "^0.1.1"
 transformers = "^4.51.1"
 einops = "^0.8.1"
+librosa = "^0.11.0"
 
 
 [tool.poetry.group.dev.dependencies]

@@ -4,16 +4,15 @@ Train a diffusion model on images.
 
 import argparse
 from torchinfo import summary
-
 from guided_diffusion import dist_util, logger
 from guided_diffusion.audio_datasets import load_data
 from guided_diffusion.resample import create_named_schedule_sampler
-from guided_diffusion.script_util import (
-    model_and_diffusion_defaults,
-    create_model_and_diffusion,
-    args_to_dict,
-    add_dict_to_argparser,
-)
+# from guided_diffusion.script_util import (
+#     model_and_diffusion_defaults,
+#     create_model_and_diffusion,
+#     args_to_dict,
+#     add_dict_to_argparser,
+# )
 from guided_diffusion.train_util import TrainLoop
 
 from dataclasses import dataclass
@@ -73,7 +72,7 @@ cs = ConfigStore.instance()
 # Registering the Config class with the name 'config'.
 cs.store(name="config", node=TrainerConfig)
 
-@hydra.main(config_path="../configs", config_name="v1", version_base=None)
+@hydra.main(config_path="./configs", config_name="v1", version_base=None)
 def main(cfg: TrainerConfig):
     
     # args = create_argparser().parse_args()
