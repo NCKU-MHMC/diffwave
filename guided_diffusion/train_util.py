@@ -178,7 +178,9 @@ class TrainLoop:
                             # return x.clamp(-1, 1)
                             return x
                         samples = self.diffusion.p_sample_loop(self.ddp_model, (16, 64000),
-                                                     denoised_fn=denoised_fn, device=dist_util.dev())
+                                                               clip_denoised=False,
+                                                               denoised_fn=denoised_fn,
+                                                               device=dist_util.dev())
                         samples = samples/samples.abs().max(-1, keepdim=True)[0]
                         for i, w in enumerate(samples):
                             f.writer.add_audio(f"samples/{i}", w, f.step, self.sampling_rate)
