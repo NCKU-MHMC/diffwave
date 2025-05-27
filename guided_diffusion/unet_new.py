@@ -635,9 +635,12 @@ class UNetModel(nn.Module):
         spk_emb = self.non_spk_emb.repeat(N, 1)
         if exists(ref) and exists(mask_ref):
             # spk_emb = self.spk_encoder(ref, mask_ref.bool())
-            spk_emb = th.vmap(th.where)(mask_ref.all(-1),
-                                        spk_emb,
-                                        self.spk_encoder(ref, mask_ref.bool()),)
+            alpha = mask_ref.all(-1, keepdim=True).float()
+            spk_emb = alpha * spk_emb + (1-alpha) * self.spk_encoder(ref, mask_ref.bool())
+
+            # spk_emb = th.vmap(th.where)(mask_ref.all(-1),
+            #                             spk_emb,
+            #                             self.spk_encoder(ref, mask_ref.bool()),)
         emb = th.cat([emb, spk_emb], dim=-1)
 
         if self.num_classes is not None:
