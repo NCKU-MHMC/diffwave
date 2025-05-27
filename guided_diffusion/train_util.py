@@ -174,7 +174,7 @@ class TrainLoop:
                         assert f.writer is not None
                         def denoised_fn(x):
                             # return (x - x.mean(-1, keepdim=True)) / x.abs().max(-1, keepdim=True)[0].clamp_min(1.)
-                            return x-x.mean(-1, keepdim=True)
+                            return (x-x.mean(-1, keepdim=True))/x.std(-1, keepdim=True).clamp_min(1e-6)
                             # return x.clamp(-1, 1)
                             return x
                         samples = self.diffusion.p_sample_loop(self.ddp_model, (16, 64000),
