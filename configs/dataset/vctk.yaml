@@ -1,5 +1,5 @@
 _target_: guided_diffusion.audio_datasets.VCTKDataset
-root: "/media/8tsp/dataset/VCTK-Corpus-0.92"
+root: "/datasets/VCTK-Corpus-0.92"
 mic_id: "mic2"
 sampling_rate: 16000
 cache_dir: "/media/8tsp/dataset/cache/VCTK-Corpus-0.92/16k/"

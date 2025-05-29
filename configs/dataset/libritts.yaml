@@ -1,5 +1,5 @@
 _target_: guided_diffusion.audio_datasets.LibriTTSDataset
-root: "/media/8tsp/dataset/LibriTTS"
+root: "/datasets/LibriTTS"
 subsets: ["train-clean-100", "train-clean-360", "train-other-500"]
 sampling_rate: 16000
 cache_dir: "/media/8tsp/dataset/cache/LibriTTS/16k/"

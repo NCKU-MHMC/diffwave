@@ -35,7 +35,14 @@ def z_normalize(w: torch.Tensor) -> torch.Tensor:
     # return w
     return (w - w.mean()) / w.std().clamp_min(1e-6)
 
-def load_data(*, dataset, batch_size, max_len, deterministic=False, num_workers=0, cond_drop_rate=0.5):
+def load_data(*,
+              dataset,
+              batch_size,
+              max_len,
+              deterministic=False,
+              num_workers=0,
+              cond_drop_rate=0.5,
+              data_std=0.15,):
     """
 
     """
@@ -48,11 +55,11 @@ def load_data(*, dataset, batch_size, max_len, deterministic=False, num_workers=
             # w = normalize_waveform(w, dataset.sampling_rate)
             if crop_len <= w.shape[0]:
                 s = random.randint(0, w.shape[0] - crop_len)
-                cropped_data[i] = z_normalize(w[s:s+crop_len]) # * random.uniform(0, 2)
+                cropped_data[i] = z_normalize(w[s:s+crop_len]) * data_std # * random.uniform(0, 2)
                 mask[i, :] = False
             else:
                 s = random.randint(0, crop_len - w.shape[0])
-                cropped_data[i, :w.shape[0]] = z_normalize(w) # * random.uniform(0, 2)
+                cropped_data[i, :w.shape[0]] = z_normalize(w) * data_std # * random.uniform(0, 2)
                 mask[i, :w.shape[0]] = False
                 # if is_cond:
                 #     s = random.randint(0, crop_len - w.shape[0])

@@ -56,6 +56,8 @@ class TrainerConfig:
     num_workers: int = 8
     microbatch: int = -1 # -1 disables microbatches
 
+    data_std: float = 0.15
+
     lr: float =  0.0001
     ema_rate: str = "0.9999"  # comma-separated list of EMA values
     weight_decay: float = 0.
@@ -91,8 +93,13 @@ def main(cfg: TrainerConfig):
 
     logger.log("creating data loader...")
     dataset = hydra.utils.instantiate(cfg.dataset)
-    data = load_data(dataset=dataset, batch_size=cfg.batch_size, max_len=cfg.max_len,
-                     num_workers=cfg.num_workers, cond_drop_rate=cfg.cond_drop_rate)
+    data = load_data(dataset=dataset,
+                     batch_size=cfg.batch_size,
+                     max_len=cfg.max_len,
+                     num_workers=cfg.num_workers,
+                     cond_drop_rate=cfg.cond_drop_rate,
+                     deterministic=cfg.deterministic,
+                     data_std=cfg.data_std)
 
     logger.log("training...")
     TrainLoop(
@@ -112,6 +119,7 @@ def main(cfg: TrainerConfig):
         weight_decay=cfg.weight_decay,
         lr_anneal_steps=cfg.lr_anneal_steps,
         sampling_rate=cfg.sampling_rate,
+        data_std=cfg.data_std,
     ).run_loop()
 
 if __name__ == "__main__":

@@ -20,6 +20,8 @@ deterministic: False
 num_workers: 8
 microbatch: -1 # -1 disables microbatches
 
+data_std: 0.2
+
 lr: 0.00014142
 ema_rate: "0.9999"  # comma-separated list of EMA values
 weight_decay: 0.

@@ -1,7 +1,7 @@
 _target_: guided_diffusion.unet_new.UNetModel
 image_size: 16384
 in_channels: 1
-model_channels: 32
+model_channels: 48
 out_channels: 1
 num_res_blocks: 3
 attention_resolutions: [32, 64, 128, 256]
@@ -9,4 +9,4 @@ channel_mult: [1, 2, 2, 4, 4, 8, 8, 16, 16]
 dims: 1
 use_checkpoint: True
 num_head_channels: 32
-spk_enc: "facebook/wav2vec2-base"
+spk_enc: "facebook/wav2vec2-large"

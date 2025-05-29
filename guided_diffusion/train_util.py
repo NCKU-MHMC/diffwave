@@ -41,6 +41,7 @@ class TrainLoop:
         weight_decay=0.0,
         lr_anneal_steps=0,
         sampling_rate=16_000,
+        data_std=0.15,
     ):
         self.model = model
         self.diffusion = diffusion
@@ -62,6 +63,7 @@ class TrainLoop:
         self.weight_decay = weight_decay
         self.lr_anneal_steps = lr_anneal_steps
         self.sampling_rate = sampling_rate
+        self.data_std = data_std
 
         self.step = 0
         self.resume_step = 0
@@ -173,10 +175,7 @@ class TrainLoop:
                     if isinstance(f, logger.TensorBoardOutputFormat):
                         assert f.writer is not None
                         def denoised_fn(x):
-                            # return (x - x.mean(-1, keepdim=True)) / x.abs().max(-1, keepdim=True)[0].clamp_min(1.)
-                            return (x-x.mean(-1, keepdim=True))
-                            # return x.clamp(-1, 1)
-                            return x
+                            return th.vmap(lambda x: (x-x.mean())/x.std()*self.data_std)(x)
                         samples = self.diffusion.p_sample_loop(self.ddp_model, (16, 64000),
                                                                clip_denoised=False,
                                                                denoised_fn=denoised_fn,

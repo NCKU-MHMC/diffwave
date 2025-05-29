@@ -1,7 +1,7 @@
 defaults:
   - model: unet
   - diffusion: gaussian_diffusion
-  - dataset: libritts-r
+  - dataset: compound-libritts
   - _self_
 
 schedule_sampler: "loss-second-moment"
@@ -20,13 +20,15 @@ deterministic: False
 num_workers: 8
 microbatch: -1 # -1 disables microbatches
 
+data_std: 0.2
+
 lr: 0.0001
 ema_rate: "0.9999"  # comma-separated list of EMA values
 weight_decay: 0.
 lr_anneal_steps: 0
 log_interval: 100
 save_interval: 10000
-resume_checkpoint: ".experiments/libritts-v5-5s-8bs/model440000.pt"
+resume_checkpoint: ""
 use_fp16: True
 fp16_scale_growth: 0.001
 input_pertub: 0.1

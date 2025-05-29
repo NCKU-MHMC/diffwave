@@ -1,5 +1,5 @@
 defaults:
-  - model: unet
+  - model: unet_v6
   - diffusion: gaussian_diffusion
   - dataset: compound-libritts
   - _self_
@@ -27,7 +27,7 @@ ema_rate: "0.9999"  # comma-separated list of EMA values
 weight_decay: 0.
 lr_anneal_steps: 0
 log_interval: 100
-save_interval: 10000
+save_interval: 2000
 resume_checkpoint: ""
 use_fp16: True
 fp16_scale_growth: 0.001
