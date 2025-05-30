@@ -10,3 +10,4 @@ dims: 1
 use_checkpoint: True
 num_head_channels: 32
 spk_enc: "facebook/wav2vec2-large"
+resblock_updown: True

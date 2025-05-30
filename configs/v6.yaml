@@ -31,5 +31,5 @@ save_interval: 2000
 resume_checkpoint: ""
 use_fp16: True
 fp16_scale_growth: 0.001
-input_pertub: 0.
+input_pertub: 0.1
 cond_drop_rate: 0.5
