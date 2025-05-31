@@ -9,4 +9,7 @@ channel_mult: [1, 2, 2, 4, 4, 8, 8, 16, 16]
 dims: 1
 use_checkpoint: True
 num_head_channels: 32
+resblock_updown: True
 spk_enc: "facebook/wav2vec2-base"
+spk_enc_layers: 2
+spk_dim: 512

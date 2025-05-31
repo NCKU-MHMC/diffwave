@@ -423,6 +423,8 @@ class UNetModel(nn.Module):
         use_scale_shift_norm=False,
         resblock_updown=False,
         spk_enc: str = "facebook/wav2vec2-base",
+        spk_enc_layers: int = 2,
+        spk_dim: int = 512,
     ):
         super().__init__()
 
@@ -452,9 +454,9 @@ class UNetModel(nn.Module):
             linear(time_embed_dim, time_embed_dim),
         )
 
-        self.non_spk_emb = nn.Parameter(th.randn(512))
-        self.spk_encoder = Speech2Vector(2, 512, enc_name=spk_enc)
-        time_embed_dim = time_embed_dim + 512
+        self.non_spk_emb = nn.Parameter(th.randn(spk_dim))
+        self.spk_encoder = Speech2Vector(spk_enc_layers, spk_dim, enc_name=spk_enc)
+        time_embed_dim = time_embed_dim + spk_dim
 
         if self.num_classes is not None:
             self.label_emb = nn.Embedding(self.num_classes, time_embed_dim)
